@@ -36,7 +36,10 @@ impl LetterGraph {
                 }
             }
         }
-        LetterGraph { successors, out_degree }
+        LetterGraph {
+            successors,
+            out_degree,
+        }
     }
 
     /// Update after decrementing `counts[f][l]` by 1.
@@ -114,7 +117,17 @@ impl LetterGraph {
                 succ_mask &= !bit;
                 let w = bit.trailing_zeros() as u8;
                 if index[w as usize] == u32::MAX {
-                    strongconnect(w, successors, index_counter, stack, on_stack, index, lowlink, scc_id, scc_count);
+                    strongconnect(
+                        w,
+                        successors,
+                        index_counter,
+                        stack,
+                        on_stack,
+                        index,
+                        lowlink,
+                        scc_id,
+                        scc_count,
+                    );
                     lowlink[v as usize] = lowlink[v as usize].min(lowlink[w as usize]);
                 } else if on_stack[w as usize] {
                     lowlink[v as usize] = lowlink[v as usize].min(index[w as usize]);
@@ -126,7 +139,9 @@ impl LetterGraph {
                     let w = stack.pop().unwrap();
                     on_stack[w as usize] = false;
                     scc_id[w as usize] = *scc_count;
-                    if w == v { break; }
+                    if w == v {
+                        break;
+                    }
                 }
                 *scc_count += 1;
             }
@@ -134,8 +149,17 @@ impl LetterGraph {
 
         for v in 0u8..26 {
             if index[v as usize] == u32::MAX {
-                strongconnect(v, &self.successors, &mut index_counter, &mut stack,
-                    &mut on_stack, &mut index, &mut lowlink, &mut scc_id, &mut scc_count);
+                strongconnect(
+                    v,
+                    &self.successors,
+                    &mut index_counter,
+                    &mut stack,
+                    &mut on_stack,
+                    &mut index,
+                    &mut lowlink,
+                    &mut scc_id,
+                    &mut scc_count,
+                );
             }
         }
 
@@ -204,9 +228,13 @@ impl LetterGraph {
                     succ_mask &= !bit;
                     let v = bit.trailing_zeros() as usize;
                     match label[v] {
-                        Some(false) => { has_loser_succ = true; }
-                        Some(true)  => {} // winner successor
-                        None        => { all_succs_labeled_winner = false; }
+                        Some(false) => {
+                            has_loser_succ = true;
+                        }
+                        Some(true) => {} // winner successor
+                        None => {
+                            all_succs_labeled_winner = false;
+                        }
                     }
                 }
                 if has_loser_succ {
@@ -233,8 +261,13 @@ mod tests {
         let counts = gen1_opening_counts();
         let g = LetterGraph::from_counts(&counts);
         // q=16, u=20, x=23, y=24 have no Gen1 starters
-        for dead in [b'q'-b'a', b'u'-b'a', b'x'-b'a', b'y'-b'a'] {
-            assert_eq!(g.successors[dead as usize], 0, "letter {} should have no successors", (b'a'+dead) as char);
+        for dead in [b'q' - b'a', b'u' - b'a', b'x' - b'a', b'y' - b'a'] {
+            assert_eq!(
+                g.successors[dead as usize],
+                0,
+                "letter {} should have no successors",
+                (b'a' + dead) as char
+            );
             assert_eq!(g.out_degree[dead as usize], 0);
         }
     }
@@ -253,8 +286,13 @@ mod tests {
         let g = LetterGraph::from_counts(&counts);
         let labels = g.retrograde();
         // q, u, x, y have no starters → immediate loss
-        for dead in [b'q'-b'a', b'u'-b'a', b'x'-b'a', b'y'-b'a'] {
-            assert_eq!(labels[dead as usize], Some(false), "letter {} should be labeled Loser", (b'a'+dead) as char);
+        for dead in [b'q' - b'a', b'u' - b'a', b'x' - b'a', b'y' - b'a'] {
+            assert_eq!(
+                labels[dead as usize],
+                Some(false),
+                "letter {} should be labeled Loser",
+                (b'a' + dead) as char
+            );
         }
         // Letters that can reach a dead letter directly are winners
         // e.g. if any Pokémon ends in q/u/x/y, its first letter should be a winner

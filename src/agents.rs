@@ -63,10 +63,14 @@ pub struct RandomAgent;
 impl Agent for RandomAgent {
     fn choose_move(&mut self, state: &GameState<'_>) -> Option<(u8, u8)> {
         let moves = state.legal_moves();
-        if moves.is_empty() { return None; }
+        if moves.is_empty() {
+            return None;
+        }
         Some(moves[rand::rng().random_range(0..moves.len())])
     }
-    fn name(&self) -> &str { "Random" }
+    fn name(&self) -> &str {
+        "Random"
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -77,10 +81,14 @@ pub struct GreedyAgent;
 
 impl Agent for GreedyAgent {
     fn choose_move(&mut self, state: &GameState<'_>) -> Option<(u8, u8)> {
-        state.legal_moves().into_iter()
+        state
+            .legal_moves()
+            .into_iter()
             .min_by_key(|&(_, t)| state.graph.out_degree[t as usize])
     }
-    fn name(&self) -> &str { "Greedy" }
+    fn name(&self) -> &str {
+        "Greedy"
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -92,28 +100,41 @@ pub struct DeadEndHunter;
 impl Agent for DeadEndHunter {
     fn choose_move(&mut self, state: &GameState<'_>) -> Option<(u8, u8)> {
         let moves = state.legal_moves();
-        if moves.is_empty() { return None; }
+        if moves.is_empty() {
+            return None;
+        }
         let labels = state.graph.retrograde();
 
         // 1. Play into a Loser letter → immediate / forced win.
-        if let Some(&m) = moves.iter().find(|&&(_, t)| labels[t as usize] == Some(false)) {
+        if let Some(&m) = moves
+            .iter()
+            .find(|&&(_, t)| labels[t as usize] == Some(false))
+        {
             return Some(m);
         }
         // 2. Among remaining, avoid Winner letters; prefer lowest out-degree.
-        let non_losing: Vec<_> = moves.iter()
+        let non_losing: Vec<_> = moves
+            .iter()
             .filter(|&&(_, t)| labels[t as usize] != Some(true))
             .copied()
             .collect();
-        let pool: &[(u8, u8)] = if non_losing.is_empty() { &moves } else { &non_losing };
-        pool.iter().min_by_key(|&&(_, t)| state.graph.out_degree[t as usize]).copied()
+        let pool: &[(u8, u8)] = if non_losing.is_empty() {
+            &moves
+        } else {
+            &non_losing
+        };
+        pool.iter()
+            .min_by_key(|&&(_, t)| state.graph.out_degree[t as usize])
+            .copied()
     }
-    fn name(&self) -> &str { "DeadEndHunter" }
+    fn name(&self) -> &str {
+        "DeadEndHunter"
+    }
 }
 
 // ---------------------------------------------------------------------------
 // Rollout helpers (shared between RolloutAgent and HybridAgent)
 // ---------------------------------------------------------------------------
-
 
 fn random_game_win_inner(required: Option<u8>, init_counts: &[u8; 676]) -> bool {
     let mut counts = *init_counts;
@@ -121,10 +142,12 @@ fn random_game_win_inner(required: Option<u8>, init_counts: &[u8; 676]) -> bool 
     let mut my_turn = true;
     loop {
         let moves: Vec<(u8, u8)> = match req {
-            None => (0u8..26).flat_map(|f| (0u8..26).map(move |t| (f, t)))
+            None => (0u8..26)
+                .flat_map(|f| (0u8..26).map(move |t| (f, t)))
                 .filter(|&(f, t)| counts[pair_index(f, t)] > 0)
                 .collect(),
-            Some(l) => (0u8..26).map(|t| (l, t))
+            Some(l) => (0u8..26)
+                .map(|t| (l, t))
                 .filter(|&(_, t)| counts[pair_index(l, t)] > 0)
                 .collect(),
         };
@@ -141,7 +164,8 @@ fn random_game_win_inner(required: Option<u8>, init_counts: &[u8; 676]) -> bool 
 /// Score a move `(f,t)` for the player to move: returns P(we win) ∈ [0,1].
 /// Uses exact minimax to `depth`, then `rollouts` random games at the leaf.
 fn score_move(
-    f: u8, t: u8,
+    f: u8,
+    t: u8,
     counts: &mut [u8; 676],
     graph: &mut LetterGraph,
     memo: &mut FxHashMap<(u8, u64), bool>,
@@ -153,8 +177,8 @@ fn score_move(
     graph.on_decrement(f, t, counts);
 
     let score = match can_win(Some(t), counts, graph, memo, depth) {
-        Some(false) => 1.0,  // opponent loses after this move → we win
-        Some(true)  => 0.0,  // opponent wins → we lose
+        Some(false) => 1.0, // opponent loses after this move → we win
+        Some(true) => 0.0,  // opponent wins → we lose
         None => {
             // Depth limit: estimate via random rollouts.
             // P(opponent-to-move at t wins) estimated by rollouts.
@@ -163,7 +187,11 @@ fn score_move(
                 .filter(|_| random_game_win_inner(Some(t), counts))
                 .count();
             // wins/rollouts = P(player at t wins) = P(opponent wins)
-            if rollouts == 0 { 0.5 } else { 1.0 - wins as f64 / rollouts as f64 }
+            if rollouts == 0 {
+                0.5
+            } else {
+                1.0 - wins as f64 / rollouts as f64
+            }
         }
     };
 
@@ -182,26 +210,31 @@ pub struct RolloutAgent {
 }
 
 impl RolloutAgent {
-    pub fn new(depth: usize, rollouts: usize) -> Self { RolloutAgent { depth, rollouts } }
+    pub fn new(depth: usize, rollouts: usize) -> Self {
+        RolloutAgent { depth, rollouts }
+    }
 }
 
 impl Agent for RolloutAgent {
     fn choose_move(&mut self, state: &GameState<'_>) -> Option<(u8, u8)> {
         let moves = state.legal_moves();
-        if moves.is_empty() { return None; }
+        if moves.is_empty() {
+            return None;
+        }
         let mut counts = *state.counts;
         let mut graph = state.graph.clone();
         let mut memo: FxHashMap<(u8, u64), bool> = FxHashMap::default();
         let depth = self.depth;
         let rollouts = self.rollouts;
-        moves.into_iter()
-            .max_by(|&(f1, t1), &(f2, t2)| {
-                let s1 = score_move(f1, t1, &mut counts, &mut graph, &mut memo, depth, rollouts);
-                let s2 = score_move(f2, t2, &mut counts, &mut graph, &mut memo, depth, rollouts);
-                s1.partial_cmp(&s2).unwrap_or(std::cmp::Ordering::Equal)
-            })
+        moves.into_iter().max_by(|&(f1, t1), &(f2, t2)| {
+            let s1 = score_move(f1, t1, &mut counts, &mut graph, &mut memo, depth, rollouts);
+            let s2 = score_move(f2, t2, &mut counts, &mut graph, &mut memo, depth, rollouts);
+            s1.partial_cmp(&s2).unwrap_or(std::cmp::Ordering::Equal)
+        })
     }
-    fn name(&self) -> &str { "Rollout" }
+    fn name(&self) -> &str {
+        "Rollout"
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -214,17 +247,24 @@ pub struct HybridAgent {
 }
 
 impl HybridAgent {
-    pub fn new(depth: usize, rollouts: usize) -> Self { HybridAgent { depth, rollouts } }
+    pub fn new(depth: usize, rollouts: usize) -> Self {
+        HybridAgent { depth, rollouts }
+    }
 }
 
 impl Agent for HybridAgent {
     fn choose_move(&mut self, state: &GameState<'_>) -> Option<(u8, u8)> {
         let moves = state.legal_moves();
-        if moves.is_empty() { return None; }
+        if moves.is_empty() {
+            return None;
+        }
         let labels = state.graph.retrograde();
 
         // 1. Winning move available via retrograde?
-        if let Some(&m) = moves.iter().find(|&&(_, t)| labels[t as usize] == Some(false)) {
+        if let Some(&m) = moves
+            .iter()
+            .find(|&&(_, t)| labels[t as usize] == Some(false))
+        {
             return Some(m);
         }
 
@@ -235,7 +275,8 @@ impl Agent for HybridAgent {
         }
 
         // 3. Restrict to non-proven-losing moves and run rollout.
-        let pool: Vec<(u8, u8)> = moves.into_iter()
+        let pool: Vec<(u8, u8)> = moves
+            .into_iter()
             .filter(|&(_, t)| labels[t as usize] != Some(true))
             .collect();
 
@@ -244,14 +285,15 @@ impl Agent for HybridAgent {
         let mut memo: FxHashMap<(u8, u64), bool> = FxHashMap::default();
         let depth = self.depth;
         let rollouts = self.rollouts;
-        pool.into_iter()
-            .max_by(|&(f1, t1), &(f2, t2)| {
-                let s1 = score_move(f1, t1, &mut counts, &mut graph, &mut memo, depth, rollouts);
-                let s2 = score_move(f2, t2, &mut counts, &mut graph, &mut memo, depth, rollouts);
-                s1.partial_cmp(&s2).unwrap_or(std::cmp::Ordering::Equal)
-            })
+        pool.into_iter().max_by(|&(f1, t1), &(f2, t2)| {
+            let s1 = score_move(f1, t1, &mut counts, &mut graph, &mut memo, depth, rollouts);
+            let s2 = score_move(f2, t2, &mut counts, &mut graph, &mut memo, depth, rollouts);
+            s1.partial_cmp(&s2).unwrap_or(std::cmp::Ordering::Equal)
+        })
     }
-    fn name(&self) -> &str { "Hybrid" }
+    fn name(&self) -> &str {
+        "Hybrid"
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -263,17 +305,25 @@ pub struct ExactAgent {
 }
 
 impl ExactAgent {
-    pub fn new() -> Self { ExactAgent { memo: FxHashMap::default() } }
+    pub fn new() -> Self {
+        ExactAgent {
+            memo: FxHashMap::default(),
+        }
+    }
 }
 
 impl Default for ExactAgent {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Agent for ExactAgent {
     fn choose_move(&mut self, state: &GameState<'_>) -> Option<(u8, u8)> {
         let moves = state.legal_moves();
-        if moves.is_empty() { return None; }
+        if moves.is_empty() {
+            return None;
+        }
         let mut counts = *state.counts;
         let mut graph = state.graph.clone();
         let mut fallback = None;
@@ -284,10 +334,16 @@ impl Agent for ExactAgent {
             let opp = can_win(Some(t), &mut counts, &mut graph, &mut self.memo, usize::MAX);
             counts[idx] += 1;
             graph.on_increment(f, t);
-            if opp == Some(false) { return Some((f, t)); }
-            if fallback.is_none() { fallback = Some((f, t)); }
+            if opp == Some(false) {
+                return Some((f, t));
+            }
+            if fallback.is_none() {
+                fallback = Some((f, t));
+            }
         }
         fallback
     }
-    fn name(&self) -> &str { "Exact" }
+    fn name(&self) -> &str {
+        "Exact"
+    }
 }

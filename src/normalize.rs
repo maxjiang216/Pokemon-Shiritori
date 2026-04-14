@@ -23,7 +23,10 @@ mod tests {
 
     #[test]
     fn mr_mime() {
-        assert_eq!(first_last_letters("Mr. Mime"), Some((b'm' - b'a', b'e' - b'a')));
+        assert_eq!(
+            first_last_letters("Mr. Mime"),
+            Some((b'm' - b'a', b'e' - b'a'))
+        );
     }
 
     #[test]
@@ -52,6 +55,9 @@ mod tests {
 
     #[test]
     fn pikachu() {
-        assert_eq!(first_last_letters("Pikachu"), Some((b'p' - b'a', b'u' - b'a')));
+        assert_eq!(
+            first_last_letters("Pikachu"),
+            Some((b'p' - b'a', b'u' - b'a'))
+        );
     }
 }
