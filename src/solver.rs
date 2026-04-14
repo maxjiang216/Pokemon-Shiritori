@@ -59,8 +59,12 @@ pub fn update_hash(hash: &mut u64, edge_idx: usize, old_c: u8, new_c: u8) {
     let z = zobrist();
     let oc = (old_c as usize).min(MAX_COUNT - 1);
     let nc = (new_c as usize).min(MAX_COUNT - 1);
-    if oc > 0 { *hash ^= z[edge_idx * MAX_COUNT + oc]; }
-    if nc > 0 { *hash ^= z[edge_idx * MAX_COUNT + nc]; }
+    if oc > 0 {
+        *hash ^= z[edge_idx * MAX_COUNT + oc];
+    }
+    if nc > 0 {
+        *hash ^= z[edge_idx * MAX_COUNT + nc];
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -72,7 +76,9 @@ fn reachable_hash(counts: &[u8; 676], reachable_mask: u32) -> u64 {
     let z = zobrist();
     let mut h = 0u64;
     for u in 0u8..26 {
-        if reachable_mask & (1 << u) == 0 { continue; }
+        if reachable_mask & (1 << u) == 0 {
+            continue;
+        }
         for v in 0u8..26 {
             let idx = pair_index(u, v);
             let c = (counts[idx] as usize).min(MAX_COUNT - 1);
@@ -107,7 +113,9 @@ pub fn can_win(
         'outer: for f in 0u8..26 {
             for t in 0u8..26 {
                 let idx = pair_index(f, t);
-                if counts[idx] == 0 { continue; }
+                if counts[idx] == 0 {
+                    continue;
+                }
                 // If we play f→t, the opponent must start at t.
                 // If retrograde says t is a Loser for the player-to-move (i.e. opponent) → we win.
                 if labels[t as usize] == Some(false) {
@@ -120,9 +128,12 @@ pub fn can_win(
                 counts[idx] += 1;
                 graph.on_increment(f, t);
                 match opp {
-                    Some(false) => { winning = true; break 'outer; }
-                    Some(true)  => {}
-                    None        => {} // unknown; keep trying
+                    Some(false) => {
+                        winning = true;
+                        break 'outer;
+                    }
+                    Some(true) => {}
+                    None => {} // unknown; keep trying
                 }
             }
         }
@@ -168,7 +179,9 @@ pub fn can_win(
         // Check if exactly one distinct edge type is available from cur.
         // Count distinct target letters (bits) and total edge count.
         let distinct_targets = succ_mask.count_ones();
-        if distinct_targets != 1 { break; } // branching point — stop compressing
+        if distinct_targets != 1 {
+            break;
+        } // branching point — stop compressing
 
         let t = succ_mask.trailing_zeros() as u8;
         // Apply the forced move.
@@ -212,9 +225,12 @@ pub fn can_win(
             counts[idx] += 1;
             graph.on_increment(cur, t);
             match opp {
-                Some(false) => { winning = true; break; }
-                Some(true)  => {}
-                None        => {} // unknown
+                Some(false) => {
+                    winning = true;
+                    break;
+                }
+                Some(true) => {}
+                None => {} // unknown
             }
         }
         memo.insert(memo_key, winning);
@@ -244,7 +260,9 @@ pub fn optimal_opening_moves(
     for f in 0u8..26 {
         for t in 0u8..26 {
             let idx = pair_index(f, t);
-            if counts[idx] == 0 { continue; }
+            if counts[idx] == 0 {
+                continue;
+            }
             counts[idx] -= 1;
             graph.on_decrement(f, t, counts);
             let opp = can_win(Some(t), counts, graph, memo, depth_limit);
@@ -252,8 +270,10 @@ pub fn optimal_opening_moves(
             graph.on_increment(f, t);
             match opp {
                 Some(false) => out.push((f, t)),
-                Some(true)  => {}
-                None        => { all_exact = false; }
+                Some(true) => {}
+                None => {
+                    all_exact = false;
+                }
             }
         }
     }
@@ -266,7 +286,9 @@ mod tests {
     use crate::gen1;
     use rustc_hash::FxHashMap;
 
-    fn fresh() -> FxHashMap<(u8, u64), bool> { FxHashMap::default() }
+    fn fresh() -> FxHashMap<(u8, u64), bool> {
+        FxHashMap::default()
+    }
 
     #[test]
     fn trivial_no_moves_loses() {
@@ -290,13 +312,17 @@ mod tests {
     #[test]
     fn dead_letter_required_loses_immediately() {
         let mut c = [0u8; 676];
-        let b = 1u8; let c_l = 2u8;
+        let b = 1u8;
+        let c_l = 2u8;
         c[pair_index(b, c_l)] = 1;
         let mut g = LetterGraph::from_counts(&c);
         let mut memo = fresh();
         // Must start with 'a' but only b→c exists
         let a = 0u8;
-        assert_eq!(can_win(Some(a), &mut c, &mut g, &mut memo, 1000), Some(false));
+        assert_eq!(
+            can_win(Some(a), &mut c, &mut g, &mut memo, 1000),
+            Some(false)
+        );
     }
 
     #[test]
@@ -311,7 +337,10 @@ mod tests {
         let mut memo = fresh();
         // Required=a: only move is a→b; then b→c is forced; then c has no moves → current player (at c) loses.
         // c is at parity=2 (2 forced moves from a). parity even → result for required=a = false.
-        assert_eq!(can_win(Some(a), &mut c, &mut g, &mut memo, 1000), Some(false));
+        assert_eq!(
+            can_win(Some(a), &mut c, &mut g, &mut memo, 1000),
+            Some(false)
+        );
     }
 
     #[test]
@@ -325,7 +354,10 @@ mod tests {
         c[pair_index(b, a)] = 1;
         let mut g = LetterGraph::from_counts(&c);
         let mut memo = fresh();
-        assert_eq!(can_win(Some(a), &mut c, &mut g, &mut memo, 1000), Some(true));
+        assert_eq!(
+            can_win(Some(a), &mut c, &mut g, &mut memo, 1000),
+            Some(true)
+        );
     }
 
     #[test]
@@ -336,6 +368,10 @@ mod tests {
         let mut g = LetterGraph::from_counts(&c);
         let mut memo = fresh();
         let result = can_win(None, &mut c, &mut g, &mut memo, 1000);
-        assert_eq!(result, Some(true), "first 5 Pokémon: all openings reach dead letter");
+        assert_eq!(
+            result,
+            Some(true),
+            "first 5 Pokémon: all openings reach dead letter"
+        );
     }
 }

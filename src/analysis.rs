@@ -12,7 +12,9 @@ use crate::gen1::pair_index;
 /// Estimate whether the player-to-move wins from `(required, counts)` using random rollouts.
 /// Returns `true` if majority of rollouts result in the current player winning.
 fn rollout_estimate(required: Option<u8>, counts: &[u8; 676], rollouts: usize) -> bool {
-    if rollouts == 0 { return true; } // arbitrary default
+    if rollouts == 0 {
+        return true;
+    } // arbitrary default
     let wins: usize = (0..rollouts)
         .filter(|_| random_game_win(required, counts))
         .count();
@@ -27,14 +29,18 @@ fn random_game_win(required: Option<u8>, counts: &[u8; 676]) -> bool {
     let mut my_turn = true;
     loop {
         let moves: Vec<(u8, u8)> = match req {
-            None => (0u8..26).flat_map(|f| (0u8..26).map(move |t| (f, t)))
+            None => (0u8..26)
+                .flat_map(|f| (0u8..26).map(move |t| (f, t)))
                 .filter(|&(f, t)| counts[pair_index(f, t)] > 0)
                 .collect(),
-            Some(l) => (0u8..26).map(|t| (l, t))
+            Some(l) => (0u8..26)
+                .map(|t| (l, t))
                 .filter(|&(_, t)| counts[pair_index(l, t)] > 0)
                 .collect(),
         };
-        if moves.is_empty() { return !my_turn; }
+        if moves.is_empty() {
+            return !my_turn;
+        }
         let (f, t) = moves[rand::rng().random_range(0..moves.len())];
         counts[pair_index(f, t)] -= 1;
         req = Some(t);
@@ -65,21 +71,27 @@ pub fn sensitivity_at_depth(
 
         for _ in 0..sample_depth {
             let moves: Vec<(u8, u8)> = match req {
-                None => (0u8..26).flat_map(|f| (0u8..26).map(move |t| (f, t)))
+                None => (0u8..26)
+                    .flat_map(|f| (0u8..26).map(move |t| (f, t)))
                     .filter(|&(f, t)| counts[pair_index(f, t)] > 0)
                     .collect(),
-                Some(l) => (0u8..26).map(|t| (l, t))
+                Some(l) => (0u8..26)
+                    .map(|t| (l, t))
                     .filter(|&(_, t)| counts[pair_index(l, t)] > 0)
                     .collect(),
             };
-            if moves.is_empty() { break; }
+            if moves.is_empty() {
+                break;
+            }
             let (f, t) = moves[rand::rng().random_range(0..moves.len())];
             counts[pair_index(f, t)] -= 1;
             req = Some(t);
             moves_played += 1;
         }
 
-        if moves_played == 0 { continue; } // game ended before we started
+        if moves_played == 0 {
+            continue;
+        } // game ended before we started
         valid_samples += 1;
 
         // Step 2: Estimate baseline W/L.
@@ -89,7 +101,9 @@ pub fn sensitivity_at_depth(
         for u in 0u8..26 {
             for v in 0u8..26 {
                 let idx = pair_index(u, v);
-                if counts[idx] == 0 { continue; }
+                if counts[idx] == 0 {
+                    continue;
+                }
 
                 // Perturb: pretend this edge was used one more time.
                 let mut perturbed = counts;
@@ -120,7 +134,10 @@ pub fn run_sensitivity_report(
     rollouts: usize,
 ) {
     println!("Sensitivity analysis ({n_samples} samples, {rollouts} rollouts per estimate)");
-    println!("{:<10} {:>14} {:>14}", "Depth", "Sensitivity", "Valid samples");
+    println!(
+        "{:<10} {:>14} {:>14}",
+        "Depth", "Sensitivity", "Valid samples"
+    );
     println!("{}", "-".repeat(42));
     for &d in depths {
         let (s, v) = sensitivity_at_depth(base_counts, d, n_samples, rollouts);

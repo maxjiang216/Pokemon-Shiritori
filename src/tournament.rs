@@ -16,7 +16,10 @@ use crate::normalize::first_last_letters;
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Player { One, Two }
+pub enum Player {
+    One,
+    Two,
+}
 
 /// Play a game with a forced opening move `(open_f, open_t)`.
 ///
@@ -43,12 +46,20 @@ pub fn play_game(
     let mut active = Player::One; // whose turn it is to respond
 
     loop {
-        let state = GameState { required, counts: &counts, graph: &graph };
+        let state = GameState {
+            required,
+            counts: &counts,
+            graph: &graph,
+        };
         let agent: &mut dyn Agent = if active == Player::One { p1 } else { p2 };
         match agent.choose_move(&state) {
             None => {
                 // Active player has no move → they lose → other player wins.
-                return if active == Player::One { Player::Two } else { Player::One };
+                return if active == Player::One {
+                    Player::Two
+                } else {
+                    Player::One
+                };
             }
             Some((f, t)) => {
                 // Validate move
@@ -57,7 +68,11 @@ pub fn play_game(
                 counts[pair_index(f, t)] -= 1;
                 graph.on_decrement(f, t, &counts);
                 required = Some(t);
-                active = if active == Player::One { Player::Two } else { Player::One };
+                active = if active == Player::One {
+                    Player::Two
+                } else {
+                    Player::One
+                };
             }
         }
     }
@@ -78,11 +93,15 @@ pub struct TournamentResult {
 
 impl TournamentResult {
     pub fn win_pct_a(&self) -> f64 {
-        if self.total == 0 { return 0.5; }
+        if self.total == 0 {
+            return 0.5;
+        }
         self.wins_a as f64 / self.total as f64
     }
     pub fn win_pct_b(&self) -> f64 {
-        if self.total == 0 { return 0.5; }
+        if self.total == 0 {
+            return 0.5;
+        }
         self.wins_b as f64 / self.total as f64
     }
 }
@@ -112,9 +131,13 @@ pub fn run_tournament(
     let mut total = 0u32;
 
     for name in names {
-        let Some((f, l)) = first_last_letters(name) else { continue };
+        let Some((f, l)) = first_last_letters(name) else {
+            continue;
+        };
         // Only play if this edge exists in the dictionary.
-        if base_counts[pair_index(f, l)] == 0 { continue; }
+        if base_counts[pair_index(f, l)] == 0 {
+            continue;
+        }
 
         for _ in 0..games_per_start {
             // Game A: opening word played, a responds first.
@@ -139,7 +162,13 @@ pub fn run_tournament(
         }
     }
 
-    TournamentResult { name_a, name_b, wins_a, wins_b, total }
+    TournamentResult {
+        name_a,
+        name_b,
+        wins_a,
+        wins_b,
+        total,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -157,7 +186,9 @@ pub struct RoundRobinResult {
 impl RoundRobinResult {
     pub fn win_pct(&self, i: usize, j: usize) -> f64 {
         let g = self.games[i][j];
-        if g == 0 { return 0.5; }
+        if g == 0 {
+            return 0.5;
+        }
         self.wins[i][j] as f64 / g as f64
     }
 
@@ -167,7 +198,9 @@ impl RoundRobinResult {
         let col_w = 12usize;
         // Header
         print!("{:<16}", "Agent \\ vs");
-        for a in &self.agents { print!(" {:>col_w$}", a, col_w = col_w); }
+        for a in &self.agents {
+            print!(" {:>col_w$}", a, col_w = col_w);
+        }
         println!();
         // Rows
         for i in 0..n {
@@ -204,8 +237,12 @@ pub fn round_robin(
             let mut total = 0u32;
 
             for name in names {
-                let Some((f, l)) = first_last_letters(name) else { continue };
-                if base_counts[pair_index(f, l)] == 0 { continue; }
+                let Some((f, l)) = first_last_letters(name) else {
+                    continue;
+                };
+                if base_counts[pair_index(f, l)] == 0 {
+                    continue;
+                }
 
                 for _ in 0..games_per_start {
                     // Safety: we need mutable refs to two distinct agents.
@@ -216,7 +253,10 @@ pub fn round_robin(
 
                     // Game A: i responds to opener, j played opener
                     let w = play_game(base_counts, f, l, ai, aj);
-                    match w { Player::One => wins_i += 1, Player::Two => wins_j += 1 }
+                    match w {
+                        Player::One => wins_i += 1,
+                        Player::Two => wins_j += 1,
+                    }
                     total += 1;
 
                     // Game B: j responds to opener, i played opener
@@ -224,7 +264,10 @@ pub fn round_robin(
                     let ai = &mut *left[i];
                     let aj = &mut *right[0];
                     let w = play_game(base_counts, f, l, aj, ai);
-                    match w { Player::One => wins_j += 1, Player::Two => wins_i += 1 }
+                    match w {
+                        Player::One => wins_j += 1,
+                        Player::Two => wins_i += 1,
+                    }
                     total += 1;
                 }
             }
@@ -236,5 +279,9 @@ pub fn round_robin(
         }
     }
 
-    RoundRobinResult { agents: agent_names, wins, games }
+    RoundRobinResult {
+        agents: agent_names,
+        wins,
+        games,
+    }
 }

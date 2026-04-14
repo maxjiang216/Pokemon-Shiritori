@@ -5,5 +5,6 @@ pub mod analysis;
 pub mod gen1;
 pub mod graph;
 pub mod normalize;
+pub mod play;
 pub mod solver;
 pub mod tournament;
