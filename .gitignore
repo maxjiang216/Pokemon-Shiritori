@@ -1,1 +1,4 @@
 /target
+web/node_modules
+web/dist
+# wasm-pkg is intentionally committed (pre-built for Vercel)
