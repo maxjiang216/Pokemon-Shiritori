@@ -1,13 +1,11 @@
-//! Generation I English names and `(first, last)` bucket counts.
+//! `(first, last)` bucket counts and Gen 1–only helpers for tests.
 
+use crate::gens::names_for_generations;
 use crate::normalize::first_last_letters;
 
-/// Embedded [`data/gen1_en.json`](../../data/gen1_en.json) (national dex order).
-pub static GEN1_JSON: &str = include_str!("../data/gen1_en.json");
-
-/// Parse embedded JSON into owned names.
+/// Parse Gen 1 names from the shared generations data (national dex #1–151).
 pub fn load_gen1_names() -> Vec<String> {
-    serde_json::from_str(GEN1_JSON).expect("gen1_en.json must be a JSON array of strings")
+    names_for_generations(&[1]).expect("generation 1 data present")
 }
 
 #[inline]

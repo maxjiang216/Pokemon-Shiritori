@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { GameHandle } from '../wasm-pkg/pokemon_shiritori';
-import type { GameConfig } from '../App';
 import { getArtworkUrl, getType, TYPE_STYLES } from '../gen1data';
 
 interface MoveResult { ok: boolean; error?: string; name?: string; }
@@ -14,13 +13,13 @@ interface Move {
 
 interface Props {
   game: GameHandle;
-  config: GameConfig;
   onGameOver: (humanWon: boolean) => void;
+  onExit: () => void;
 }
 
 type Mode = 'entry' | 'picker';
 
-export default function GameScreen({ game, config, onGameOver }: Props) {
+export default function GameScreen({ game, onGameOver, onExit }: Props) {
   const [humanTurn, setHumanTurn] = useState(() => game.is_human_turn());
   const [isOver, setIsOver] = useState(false);
   const [cpuThinking, setCpuThinking] = useState(false);
@@ -31,6 +30,7 @@ export default function GameScreen({ game, config, onGameOver }: Props) {
   const [usedCount, setUsedCount] = useState(() => game.used_count());
   const [remainingCount, setRemainingCount] = useState(() => game.remaining_count());
   const [legalNames, setLegalNames] = useState<string[]>(() => game.legal_names() as string[]);
+  const [poolTotal, setPoolTotal] = useState(() => (game.pool_names() as string[]).length);
   const [history, setHistory] = useState<Move[]>([]);
 
   const [mode, setMode] = useState<Mode>('entry');
@@ -50,13 +50,24 @@ export default function GameScreen({ game, config, onGameOver }: Props) {
     setUsedCount(game.used_count());
     setRemainingCount(game.remaining_count());
     setLegalNames(game.legal_names() as string[]);
+    setPoolTotal((game.pool_names() as string[]).length);
     const h = game.history_json() as HistEntry[];
     setHistory(h.map(e => ({ name: e.name, byHuman: e.by_human })));
+    if (h.length > 0) {
+      const last = h[h.length - 1];
+      setLastPlayed({ name: last.name, byHuman: last.by_human });
+    } else {
+      setLastPlayed(null);
+    }
     setHint(null);
     setInput('');
     setError(null);
     setPickerSearch('');
   }, [game]);
+
+  useEffect(() => {
+    syncState();
+  }, [syncState]);
 
   // Trigger CPU move whenever it's the CPU's turn.
   useEffect(() => {
@@ -130,7 +141,7 @@ export default function GameScreen({ game, config, onGameOver }: Props) {
     ? 'Your Turn'
     : `${game.cpu_name()}'s Turn`;
 
-  const totalInPool = config.count;
+  const totalInPool = poolTotal;
 
   return (
     <div>
@@ -140,9 +151,14 @@ export default function GameScreen({ game, config, onGameOver }: Props) {
           <div className={`turn-dot ${cpuThinking ? 'thinking' : !humanTurn ? 'cpu' : ''}`} />
           <span className="turn-label">{turnLabel}</span>
         </div>
-        <span className="used-count">
-          Used <strong>{usedCount}</strong> / {totalInPool}
-        </span>
+        <div className="game-status-right">
+          <button type="button" className="game-exit-btn" onClick={onExit} title="Leave match and return home">
+            Home
+          </button>
+          <span className="used-count">
+            Used <strong>{usedCount}</strong> / {totalInPool}
+          </span>
+        </div>
       </div>
 
       {/* Last played card */}
@@ -191,7 +207,7 @@ export default function GameScreen({ game, config, onGameOver }: Props) {
             <div style={{ fontSize: 48, marginBottom: 8 }}>🎮</div>
             <p style={{ fontSize: 14 }}>
               {humanTurn
-                ? 'You go first! Name any Gen 1 Pokémon.'
+                ? 'You go first! Name any Pokémon from your pool.'
                 : `${game.cpu_name()} goes first…`}
             </p>
           </div>

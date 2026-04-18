@@ -1,18 +1,45 @@
 //! Interactive human vs CPU Pokémon Shiritori (name-first CLI).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::{self, BufRead, Write};
 
 use rand::Rng;
 
 use crate::agents::{Agent, GameState};
 use crate::gen1::pair_index;
-use crate::graph::LetterGraph;
+use crate::graph::{non_terminal_opening_indices, LetterGraph};
 use crate::normalize::first_last_letters;
 
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
+
+/// Random opening that leaves the opponent at least one legal move (no dead-ending last letters).
+fn try_forced_random_opening(
+    counts: &mut [u8; 676],
+    graph: &mut LetterGraph,
+    names: &[String],
+    used_name_keys: &mut HashSet<String>,
+    opener_is_human: bool,
+) -> Option<u8> {
+    let safe = non_terminal_opening_indices(graph, names);
+    if safe.is_empty() {
+        return None;
+    }
+    let pick = safe[rand::rng().random_range(0..safe.len())];
+    let name = &names[pick];
+    let (f, l) = first_last_letters(name).expect("valid ascii name");
+    let idx = pair_index(f, l);
+    counts[idx] -= 1;
+    graph.on_decrement(f, l, counts);
+    used_name_keys.insert(lookup_key(name));
+    if opener_is_human {
+        println!("Random opening (you): {name}");
+    } else {
+        println!("Random opening (CPU): {name}");
+    }
+    Some(l)
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FirstPlayer {
@@ -35,6 +62,7 @@ pub fn run_play(
     loop {
         let mut counts = base_counts;
         let mut graph = LetterGraph::from_counts(&counts);
+        let mut used_name_keys: HashSet<String> = HashSet::new();
         let mut required: Option<u8> = None;
         let human_first = match first {
             FirstPlayer::Human => true,
@@ -45,6 +73,17 @@ pub fn run_play(
 
         print_banner(cpu.name(), names.len(), first, human_first);
         let _ = io::stdout().flush();
+
+        if let Some(l) = try_forced_random_opening(
+            &mut counts,
+            &mut graph,
+            &names,
+            &mut used_name_keys,
+            human_first,
+        ) {
+            required = Some(l);
+            human_to_move = !human_first;
+        }
 
         let mut game_active = true;
         while game_active {
@@ -81,7 +120,7 @@ pub fn run_play(
                             break;
                         }
                         Some(Cmd::Legal) => {
-                            let mut list = legal_names(required, &counts, &names);
+                            let mut list = legal_names(required, &counts, &names, &used_name_keys);
                             list.sort();
                             if list.is_empty() {
                                 println!("No legal Pokémon names.");
@@ -121,6 +160,11 @@ pub fn run_play(
                                     }
                                 }
                                 let idx = pair_index(f, l);
+                                let key = lookup_key(&canonical);
+                                if used_name_keys.contains(&key) {
+                                    println!("That Pokémon was already played. Try again.");
+                                    continue;
+                                }
                                 if counts[idx] == 0 {
                                     println!("That Pokémon (edge) is not available. Try again.");
                                     continue;
@@ -128,6 +172,7 @@ pub fn run_play(
                                 println!("You: {canonical}");
                                 counts[idx] -= 1;
                                 graph.on_decrement(f, l, &counts);
+                                used_name_keys.insert(key);
                                 required = Some(l);
                                 human_to_move = false;
                                 break;
@@ -153,15 +198,18 @@ pub fn run_play(
                     }
                     Some((f, t)) => {
                         let idx = pair_index(f, t);
-                        let display = pick_display_name(idx, &pair_to_names);
+                        let display = pick_unused_name(idx, &pair_to_names, &used_name_keys);
                         let fc = (b'a' + f) as char;
                         let tc = (b'a' + t) as char;
-                        match display {
+                        match &display {
                             Some(n) => println!("CPU: {n} ({fc}→{tc})"),
                             None => println!("CPU: ({fc}→{tc})"),
                         }
                         counts[idx] -= 1;
                         graph.on_decrement(f, t, &counts);
+                        if let Some(n) = &display {
+                            used_name_keys.insert(lookup_key(n));
+                        }
                         required = Some(t);
                         human_to_move = true;
                     }
@@ -251,9 +299,17 @@ fn resolve_name(
     Ok((f, l, canonical.clone()))
 }
 
-fn legal_names(required: Option<u8>, counts: &[u8; 676], names: &[String]) -> Vec<String> {
+fn legal_names(
+    required: Option<u8>,
+    counts: &[u8; 676],
+    names: &[String],
+    used_name_keys: &HashSet<String>,
+) -> Vec<String> {
     let mut out = Vec::new();
     for name in names {
+        if used_name_keys.contains(&lookup_key(name)) {
+            continue;
+        }
         let Some((f, l)) = first_last_letters(name) else {
             continue;
         };
@@ -269,8 +325,16 @@ fn legal_names(required: Option<u8>, counts: &[u8; 676], names: &[String]) -> Ve
     out
 }
 
-fn pick_display_name(idx: usize, pair_to_names: &[Vec<String>]) -> Option<String> {
-    pair_to_names.get(idx).and_then(|v| v.first().cloned())
+fn pick_unused_name(
+    idx: usize,
+    pair_to_names: &[Vec<String>],
+    used_name_keys: &HashSet<String>,
+) -> Option<String> {
+    pair_to_names.get(idx).and_then(|v| {
+        v.iter()
+            .find(|n| !used_name_keys.contains(&lookup_key(n)))
+            .cloned()
+    })
 }
 
 // ---------------------------------------------------------------------------

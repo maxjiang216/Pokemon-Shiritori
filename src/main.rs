@@ -7,24 +7,46 @@
 //!   sensitivity  [--count N] [--samples S]        Sensitivity curve
 //!                [--rollouts R]
 //!   play         [--cpu NAME] [--first human|cpu|random]  Interactive vs CPU
-//!                [--count N] [--depth D] [--rollouts R]
+//!                [--gens LIST] [--count N] [--depth D] [--rollouts R]
 
 use std::collections::HashMap;
 
 use pokemon_shiritori::agents::{
-    Agent, DeadEndHunter, ExactAgent, GreedyAgent, HybridAgent, RandomAgent, RolloutAgent,
+    Agent, ExactAgent, GreedyAgent, HybridAgent, RandomAgent, RolloutAgent,
 };
 use pokemon_shiritori::analysis::run_sensitivity_report;
-use pokemon_shiritori::gen1::{counts_from_names, load_gen1_names};
+use pokemon_shiritori::gen1::counts_from_names;
+use pokemon_shiritori::gens::{names_for_generations, parse_generation_list};
 use pokemon_shiritori::graph::LetterGraph;
+use pokemon_shiritori::normalize::first_last_letters;
 use pokemon_shiritori::play::{run_play, FirstPlayer};
-use pokemon_shiritori::solver::can_win;
+use pokemon_shiritori::solver::{can_win, first_player_wins_after_opening_edge};
+use pokemon_shiritori::terminal_stats::{
+    count_openings_with_terminal_reply, count_terminal_chains, TerminalPool,
+};
 use pokemon_shiritori::tournament::round_robin;
 use rustc_hash::FxHashMap;
 
 // ---------------------------------------------------------------------------
 // Argument parsing (no external dep — simple key=value args)
 // ---------------------------------------------------------------------------
+
+/// Build the name pool from `--gens` (default all 1–6) and optional `--count` prefix cap.
+fn pool_names_from_opts(opts: &HashMap<String, String>) -> Vec<String> {
+    let gens_str = opts.get("gens").map(|s| s.as_str()).unwrap_or("all");
+    let gens = match parse_generation_list(gens_str) {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("Invalid --gens: {e}");
+            std::process::exit(1);
+        }
+    };
+    let mut names = names_for_generations(&gens).expect("embedded dex data");
+    if let Some(c) = opts.get("count").and_then(|s| s.parse::<usize>().ok()) {
+        names.truncate(c.min(names.len()));
+    }
+    names
+}
 
 fn parse_args(args: &[String]) -> HashMap<String, String> {
     let mut map = HashMap::new();
@@ -51,11 +73,8 @@ fn parse_args(args: &[String]) -> HashMap<String, String> {
 // ---------------------------------------------------------------------------
 
 fn cmd_solve(opts: &HashMap<String, String>) {
-    let all_names = load_gen1_names();
-    let count: usize = opts
-        .get("count")
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(all_names.len());
+    let names = pool_names_from_opts(opts);
+    let count = names.len();
 
     if count > 15 {
         eprintln!(
@@ -65,7 +84,6 @@ fn cmd_solve(opts: &HashMap<String, String>) {
         );
     }
 
-    let names: Vec<String> = all_names.into_iter().take(count).collect();
     println!("Solving with {} Pokémon…", names.len());
     for n in &names {
         println!("  {n}");
@@ -89,11 +107,8 @@ fn cmd_solve(opts: &HashMap<String, String>) {
 // ---------------------------------------------------------------------------
 
 fn cmd_tournament(opts: &HashMap<String, String>) {
-    let all_names = load_gen1_names();
-    let count: usize = opts
-        .get("count")
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(all_names.len());
+    let names = pool_names_from_opts(opts);
+    let count = names.len();
     let depth: usize = opts.get("depth").and_then(|s| s.parse().ok()).unwrap_or(4);
     let rollouts: usize = opts
         .get("rollouts")
@@ -101,7 +116,6 @@ fn cmd_tournament(opts: &HashMap<String, String>) {
         .unwrap_or(30);
     let games: u32 = opts.get("games").and_then(|s| s.parse().ok()).unwrap_or(1);
 
-    let names: Vec<String> = all_names.into_iter().take(count).collect();
     let base_counts = counts_from_names(&names);
 
     println!(
@@ -115,7 +129,6 @@ fn cmd_tournament(opts: &HashMap<String, String>) {
     let mut agents: Vec<Box<dyn Agent>> = vec![
         Box::new(RandomAgent),
         Box::new(GreedyAgent),
-        Box::new(DeadEndHunter),
         Box::new(RolloutAgent::new(depth, rollouts)),
         Box::new(HybridAgent::new(depth, rollouts)),
     ];
@@ -134,11 +147,7 @@ fn cmd_tournament(opts: &HashMap<String, String>) {
 // ---------------------------------------------------------------------------
 
 fn cmd_sensitivity(opts: &HashMap<String, String>) {
-    let all_names = load_gen1_names();
-    let count: usize = opts
-        .get("count")
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(all_names.len());
+    let names = pool_names_from_opts(opts);
     let samples: usize = opts
         .get("samples")
         .and_then(|s| s.parse().ok())
@@ -157,11 +166,90 @@ fn cmd_sensitivity(opts: &HashMap<String, String>) {
         .filter_map(|s| s.trim().parse().ok())
         .collect();
 
-    let names: Vec<String> = all_names.into_iter().take(count).collect();
     let base_counts = counts_from_names(&names);
 
     println!("Using {} Pokémon.", names.len());
     run_sensitivity_report(&base_counts, &depths, samples, rollouts);
+}
+
+// ---------------------------------------------------------------------------
+// Subcommand: stats — optimal opening classification + optional chain counts
+// ---------------------------------------------------------------------------
+
+fn cmd_stats(opts: &HashMap<String, String>) {
+    let names = pool_names_from_opts(opts);
+    let max_k: u32 = opts.get("max-k").and_then(|s| s.parse().ok()).unwrap_or(9);
+    let terminal_chains = opts.get("terminal-chains").map(|s| s != "false").unwrap_or(false);
+    let depth_limit: usize = opts
+        .get("depth-limit")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(usize::MAX);
+
+    let mut counts = counts_from_names(&names);
+    let mut graph = LetterGraph::from_counts(&counts);
+    let mut memo: rustc_hash::FxHashMap<(u8, u64), bool> = rustc_hash::FxHashMap::default();
+    let pool = TerminalPool::from_names(&names);
+
+    println!(
+        "Shiritori stats — {} Pokémon (national dex prefix), English letters as in normalize\n",
+        pool.n
+    );
+    println!(
+        "Optimal play on the (first→last) letter multigraph — names that share the same edge have the same outcome.\n"
+    );
+
+    let t0 = std::time::Instant::now();
+    let mut win = Vec::new();
+    let mut lose = Vec::new();
+    let mut unknown = Vec::new();
+    for name in names.iter() {
+        let (f, l) = first_last_letters(name).expect("ascii");
+        match first_player_wins_after_opening_edge(
+            &mut counts,
+            &mut graph,
+            &mut memo,
+            f,
+            l,
+            depth_limit,
+        ) {
+            Some(true) => win.push(name.as_str()),
+            Some(false) => lose.push(name.as_str()),
+            None => unknown.push(name.as_str()),
+        }
+    }
+    let elapsed = t0.elapsed();
+
+    println!(
+        "First player wins with opening: {} / {}  (loses: {}, unknown: {})  [{:.3?}, memo entries: {}]",
+        win.len(),
+        pool.n,
+        lose.len(),
+        unknown.len(),
+        elapsed,
+        memo.len()
+    );
+    println!("\nWinning openings (N-positions for player to move first):");
+    println!("  {}", win.join(", "));
+    println!("\nLosing openings (P-positions — opponent wins under optimal play):");
+    println!("  {}", lose.join(", "));
+    if !unknown.is_empty() {
+        println!("\nUnknown (depth limit / incomplete):");
+        println!("  {}", unknown.join(", "));
+    }
+
+    let (m2_openings, m2_pairs) = count_openings_with_terminal_reply(&pool);
+    println!("\n(Reference) One-move terminal reply exists for opponent:");
+    println!("  openings with ≥1 such reply: {m2_openings} / {}", pool.n);
+    println!("  ordered (opening → reply) pairs: {m2_pairs}");
+
+    if terminal_chains {
+        println!("\nmk — ordered chains of length k ending in a one-move terminal (expensive):");
+        for k in 1..=max_k {
+            let t1 = std::time::Instant::now();
+            let c = count_terminal_chains(&pool, k);
+            println!("  m{k}: {c}  ({:.3?})", t1.elapsed());
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -177,16 +265,17 @@ fn make_cpu_agent(
     match cpu.to_lowercase().as_str() {
         "random" => Ok(Box::new(RandomAgent)),
         "greedy" => Ok(Box::new(GreedyAgent)),
-        "deadend" | "deadendhunter" | "hunter" => Ok(Box::new(DeadEndHunter)),
+        "deadend" | "deadendhunter" | "hunter" | "hybrid" => {
+            Ok(Box::new(HybridAgent::new(depth, rollouts)))
+        }
         "rollout" => Ok(Box::new(RolloutAgent::new(depth, rollouts))),
-        "hybrid" => Ok(Box::new(HybridAgent::new(depth, rollouts))),
         "exact" => {
             if count <= 15 {
                 Ok(Box::new(ExactAgent::new()))
             } else {
                 Err(format!(
                     "Exact agent is only available with --count ≤ 15 (got {count}). \
-                     Use --cpu hybrid, rollout, greedy, or another agent."
+                     Use --cpu deadend, rollout, greedy, or another agent."
                 ))
             }
         }
@@ -197,20 +286,16 @@ fn make_cpu_agent(
 }
 
 fn cmd_play(opts: &HashMap<String, String>) {
-    let all_names = load_gen1_names();
-    let count: usize = opts
-        .get("count")
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(all_names.len());
+    let names = pool_names_from_opts(opts);
+    let count = names.len();
     let depth: usize = opts.get("depth").and_then(|s| s.parse().ok()).unwrap_or(4);
     let rollouts: usize = opts
         .get("rollouts")
         .and_then(|s| s.parse().ok())
         .unwrap_or(30);
-    let cpu_str = opts.get("cpu").map(|s| s.as_str()).unwrap_or("hybrid");
+    let cpu_str = opts.get("cpu").map(|s| s.as_str()).unwrap_or("deadend");
     let first_str = opts.get("first").map(|s| s.as_str()).unwrap_or("human");
 
-    let names: Vec<String> = all_names.into_iter().take(count).collect();
     let base_counts = counts_from_names(&names);
 
     let cpu = match make_cpu_agent(cpu_str, count, depth, rollouts) {
@@ -248,29 +333,35 @@ fn main() {
         "tournament" => cmd_tournament(&opts),
         "sensitivity" => cmd_sensitivity(&opts),
         "play" => cmd_play(&opts),
+        "stats" => cmd_stats(&opts),
         "cpus" | "agents" => cmd_cpus(),
         _ => {
             println!("Pokémon Shiritori Solver\n");
             println!("Usage: pokemon-shiritori <subcommand> [options]\n");
             println!("Subcommands:");
-            println!("  solve        [--count N]");
-            println!("               Exact solver. Warns if N > 15.");
+            println!("  solve        [--gens LIST] [--count N]");
+            println!("               Exact solver. Warns if pool size > 15.");
+            println!("               --gens: comma-separated 1–6 or `all` (default all). --count caps pool size.");
             println!();
-            println!("  tournament   [--count N] [--depth D] [--rollouts R] [--games G]");
+            println!("  tournament   [--gens LIST] [--count N] [--depth D] [--rollouts R] [--games G]");
             println!("               Run all-agent tournament.");
-            println!("               Defaults: count=151, depth=4, rollouts=30, games=1");
+            println!("               Defaults: gens=all, depth=4, rollouts=30, games=1");
             println!();
             println!(
-                "  sensitivity  [--count N] [--depths D1,D2,...] [--samples S] [--rollouts R]"
+                "  sensitivity  [--gens LIST] [--count N] [--depths D1,D2,...] [--samples S] [--rollouts R]"
             );
             println!("               Measure outcome sensitivity at various game depths.");
             println!("               Defaults: depths=10,30,60,100,140, samples=100, rollouts=40");
             println!();
             println!("  play         [--cpu NAME] [--first human|cpu|random]");
-            println!("               [--count N] [--depth D] [--rollouts R]");
+            println!("               [--gens LIST] [--count N] [--depth D] [--rollouts R]");
             println!("               Interactive human vs CPU.");
             println!("               In-game commands: help  legal  prefer  restart  quit");
-            println!("               Defaults: cpu=hybrid, first=human, count=151, depth=4, rollouts=30");
+            println!("               Defaults: cpu=deadend, first=human, gens=all, depth=4, rollouts=30");
+            println!();
+            println!("  stats        [--gens LIST] [--count N] [--terminal-chains] [--max-k K] [--depth-limit N]");
+            println!("               Optimal win/lose per opening (exact on letter multigraph);");
+            println!("               optional mk terminal-chain counts. depth-limit=∞ by default.");
             println!();
             println!("  cpus         List all CPU agents with descriptions.");
         }
@@ -281,13 +372,11 @@ fn cmd_cpus() {
     println!("Available CPU agents (use with --cpu NAME):\n");
     println!("  random         Uniform random over legal moves.");
     println!("  greedy         Minimize opponent's out-degree at the landing letter.");
-    println!("  deadend        Retrograde-first: play into losing letters; greedy fallback.");
-    println!("               aliases: deadendhunter, hunter");
+    println!("  deadend        Retrograde + SCC check first; rollout fallback.");
+    println!("               aliases: hybrid, deadendhunter, hunter");
     println!("  rollout        Exact minimax to depth D, then R random rollouts per leaf.");
-    println!("  hybrid         Retrograde + SCC check first; rollout fallback.");
     println!("  exact          Full memoized minimax — only usable with --count ≤ 15.");
     println!();
-    println!("Tournament win rates (row beats column, Gen 1 full set):");
-    println!("  Random < Greedy < DeadEndHunter ≈ Rollout ≈ Hybrid >> Random");
-    println!("  DeadEndHunter matches Rollout/Hybrid using only O(26²) retrograde analysis.");
+    println!("Tournament lineup: Random, Greedy, Rollout, DeadEnd (hybrid engine).");
+    println!("  DeadEnd uses O(26²) retrograde analysis plus rollout search when needed.");
 }

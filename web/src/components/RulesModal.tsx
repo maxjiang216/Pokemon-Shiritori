@@ -13,9 +13,9 @@ export default function RulesModal({ onClose }: Props) {
         </div>
         <div className="modal-body">
           <p>
-            Two players alternate naming Pokémon from Gen 1. Each name must start
-            with the <strong>last letter</strong> of the previous name. No repeats allowed.
-            The first player who cannot name a Pokémon loses.
+            Two players alternate naming Pokémon from your chosen generations (national dex).
+            Each name must start with the <strong>last letter</strong> of the previous name.
+            No repeats allowed. The first player who cannot name a Pokémon loses.
           </p>
 
           <div className="live-example">
@@ -40,7 +40,7 @@ export default function RulesModal({ onClose }: Props) {
             <strong>Tips:</strong>
           </p>
           <ul style={{ paddingLeft: 20, fontSize: 14, color: 'var(--text-2)', lineHeight: 1.7, marginBottom: 20 }}>
-            <li>Watch for dead-end letters: <strong>Q, U, X, Y</strong> have no Gen 1 starters.</li>
+            <li>Some letters have no Pokémon names starting with them in your pool (e.g. in full Gen 1, <strong>Q, U, X, Y</strong>).</li>
             <li>Use the <strong>Picker</strong> mode to browse legal options.</li>
             <li>Toggle <strong>Hint</strong> to see the engine's suggested move.</li>
             <li>Special characters are ignored: Farfetch'd ends with <strong>D</strong>.</li>

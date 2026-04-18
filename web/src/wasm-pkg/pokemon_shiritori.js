@@ -96,21 +96,27 @@ export class GameHandle {
     /**
      * Create a new game.
      *
-     * - `agent`: one of `random`, `greedy`, `deadend`, `rollout`, `hybrid`
-     * - `depth`: minimax depth for rollout/hybrid agents
-     * - `rollouts`: random simulations per leaf for rollout/hybrid
-     * - `count`: how many Gen 1 Pokémon to include (1–151)
-     * - `human_first`: whether the human moves first
+     * - `agent`: one of `random`, `greedy`, `deadend` (aliases: `hybrid`, `deadendhunter`, `hunter`), `rollout`
+     * - `depth`: minimax depth for rollout/deadend agents
+     * - `rollouts`: random simulations per leaf for rollout/deadend
+     * - `generations`: comma-separated list `1`–`6` or `all` (e.g. `1,3,6`). Empty = all.
+     * - `human_first`: whether the human moves first (after a random safe opening — see below)
+     *
+     * Each game begins with a **random opening** Pokémon whose last letter still allows the
+     * next player at least one legal move (no instant one-move wins from dead-ending letters).
+     * The first configured player (human or CPU) is treated as having played that opening.
      * @param {string} agent
      * @param {number} depth
      * @param {number} rollouts
-     * @param {number} count
+     * @param {string} generations
      * @param {boolean} human_first
      */
-    constructor(agent, depth, rollouts, count, human_first) {
+    constructor(agent, depth, rollouts, generations, human_first) {
         const ptr0 = passStringToWasm0(agent, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
         const len0 = WASM_VECTOR_LEN;
-        const ret = wasm.gamehandle_new(ptr0, len0, depth, rollouts, count, human_first);
+        const ptr1 = passStringToWasm0(generations, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ret = wasm.gamehandle_new(ptr0, len0, depth, rollouts, ptr1, len1, human_first);
         this.__wbg_ptr = ret >>> 0;
         GameHandleFinalization.register(this, this.__wbg_ptr, this);
         return this;

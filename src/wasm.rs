@@ -3,17 +3,17 @@
 //! Exposes a stateful `GameHandle` object that the TypeScript UI uses to drive
 //! a full Human-vs-CPU game without any server round-trips.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use js_sys::Array;
+use rand::Rng;
 use serde::Serialize;
 use wasm_bindgen::prelude::*;
 
-use crate::agents::{
-    Agent, DeadEndHunter, GameState, GreedyAgent, HybridAgent, RandomAgent, RolloutAgent,
-};
-use crate::gen1::{counts_from_names, load_gen1_names, pair_index};
-use crate::graph::LetterGraph;
+use crate::agents::{Agent, GameState, GreedyAgent, HybridAgent, RandomAgent, RolloutAgent};
+use crate::gen1::{counts_from_names, pair_index};
+use crate::gens::{default_generation_list, names_for_generations, parse_generation_list};
+use crate::graph::{non_terminal_opening_indices, LetterGraph};
 use crate::normalize::first_last_letters;
 
 // ---------------------------------------------------------------------------
@@ -23,9 +23,9 @@ use crate::normalize::first_last_letters;
 enum CpuKind {
     Random(RandomAgent),
     Greedy(GreedyAgent),
-    DeadEnd(DeadEndHunter),
     Rollout(RolloutAgent),
-    Hybrid(HybridAgent),
+    /// Retrograde + SCC first, rollout fallback (`HybridAgent`, display name DeadEnd).
+    DeadEnd(HybridAgent),
 }
 
 impl CpuKind {
@@ -33,9 +33,8 @@ impl CpuKind {
         match self {
             CpuKind::Random(a) => a.choose_move(state),
             CpuKind::Greedy(a) => a.choose_move(state),
-            CpuKind::DeadEnd(a) => a.choose_move(state),
             CpuKind::Rollout(a) => a.choose_move(state),
-            CpuKind::Hybrid(a) => a.choose_move(state),
+            CpuKind::DeadEnd(a) => a.choose_move(state),
         }
     }
 
@@ -43,9 +42,8 @@ impl CpuKind {
         match self {
             CpuKind::Random(_) => "Random",
             CpuKind::Greedy(_) => "Greedy",
-            CpuKind::DeadEnd(_) => "DeadEndHunter",
             CpuKind::Rollout(_) => "Rollout",
-            CpuKind::Hybrid(_) => "Hybrid",
+            CpuKind::DeadEnd(_) => "DeadEnd",
         }
     }
 }
@@ -72,9 +70,18 @@ fn build_key_to_names(names: &[String]) -> HashMap<String, Vec<String>> {
     map
 }
 
-fn legal_names_for(required: Option<u8>, counts: &[u8; 676], names: &[String]) -> Vec<String> {
+/// Legal display names: letter rules, edge still has stock, and this **exact name** was not played.
+fn legal_names_for(
+    required: Option<u8>,
+    counts: &[u8; 676],
+    names: &[String],
+    used_keys: &HashSet<String>,
+) -> Vec<String> {
     let mut out = Vec::new();
     for name in names {
+        if used_keys.contains(&lookup_key(name)) {
+            continue;
+        }
         let Some((f, l)) = first_last_letters(name) else {
             continue;
         };
@@ -129,22 +136,27 @@ pub struct GameHandle {
     over: bool,
     human_won_flag: bool,
     key_to_names: HashMap<String, Vec<String>>,
+    /// `lookup_key(name)` for each Pokémon already played (distinct names, not only edges).
+    used_name_keys: HashSet<String>,
 }
 
 #[wasm_bindgen]
 impl GameHandle {
     /// Create a new game.
     ///
-    /// - `agent`: one of `random`, `greedy`, `deadend`, `rollout`, `hybrid`
-    /// - `depth`: minimax depth for rollout/hybrid agents
-    /// - `rollouts`: random simulations per leaf for rollout/hybrid
-    /// - `count`: how many Gen 1 Pokémon to include (1–151)
-    /// - `human_first`: whether the human moves first
+    /// - `agent`: one of `random`, `greedy`, `deadend` (aliases: `hybrid`, `deadendhunter`, `hunter`), `rollout`
+    /// - `depth`: minimax depth for rollout/deadend agents
+    /// - `rollouts`: random simulations per leaf for rollout/deadend
+    /// - `generations`: comma-separated list `1`–`6` or `all` (e.g. `1,3,6`). Empty = all.
+    /// - `human_first`: whether the human moves first (after a random safe opening — see below)
+    ///
+    /// Each game begins with a **random opening** Pokémon whose last letter still allows the
+    /// next player at least one legal move (no instant one-move wins from dead-ending letters).
+    /// The first configured player (human or CPU) is treated as having played that opening.
     #[wasm_bindgen(constructor)]
-    pub fn new(agent: &str, depth: u32, rollouts: u32, count: u32, human_first: bool) -> Self {
-        let all = load_gen1_names();
-        let count = (count as usize).max(1).min(all.len());
-        let names: Vec<String> = all.into_iter().take(count).collect();
+    pub fn new(agent: &str, depth: u32, rollouts: u32, generations: &str, human_first: bool) -> Self {
+        let gen_list = parse_generation_list(generations).unwrap_or_else(|_| default_generation_list());
+        let names = names_for_generations(&gen_list).expect("embedded gens data");
         let counts = counts_from_names(&names);
         let graph = LetterGraph::from_counts(&counts);
         let key_to_names = build_key_to_names(&names);
@@ -152,14 +164,16 @@ impl GameHandle {
         let d = depth as usize;
         let r = rollouts as usize;
         let cpu = match agent.to_lowercase().as_str() {
+            "random" => CpuKind::Random(RandomAgent),
             "greedy" => CpuKind::Greedy(GreedyAgent),
-            "deadend" | "deadendhunter" | "hunter" => CpuKind::DeadEnd(DeadEndHunter),
             "rollout" => CpuKind::Rollout(RolloutAgent::new(d, r)),
-            "hybrid" => CpuKind::Hybrid(HybridAgent::new(d, r)),
-            _ => CpuKind::Random(RandomAgent),
+            "deadend" | "deadendhunter" | "hunter" | "hybrid" => {
+                CpuKind::DeadEnd(HybridAgent::new(d, r))
+            }
+            _ => CpuKind::DeadEnd(HybridAgent::new(d, r)),
         };
 
-        GameHandle {
+        let mut handle = GameHandle {
             names,
             counts,
             graph,
@@ -170,7 +184,10 @@ impl GameHandle {
             over: false,
             human_won_flag: false,
             key_to_names,
-        }
+            used_name_keys: HashSet::new(),
+        };
+        handle.apply_random_forced_opening(human_first);
+        handle
     }
 
     pub fn is_human_turn(&self) -> bool {
@@ -207,7 +224,7 @@ impl GameHandle {
         self.history.len() as u32
     }
 
-    /// All pool names in national dex order — index + 1 gives the dex ID.
+    /// Pool names in national dex order for the selected generations (subset of #1–721).
     pub fn pool_names(&self) -> Array {
         let arr = Array::new();
         for name in &self.names {
@@ -219,7 +236,7 @@ impl GameHandle {
     /// Legal names for the current position, alphabetically sorted.
     pub fn legal_names(&self) -> Array {
         let arr = Array::new();
-        let mut names = legal_names_for(self.required, &self.counts, &self.names);
+        let mut names = legal_names_for(self.required, &self.counts, &self.names, &self.used_name_keys);
         names.sort();
         for n in &names {
             arr.push(&JsValue::from_str(n));
@@ -272,12 +289,17 @@ impl GameHandle {
             }
         }
 
+        let key = lookup_key(&canonical);
+        if self.used_name_keys.contains(&key) {
+            return self.make_result(false, Some("Already used!"), None);
+        }
         if self.counts[pair_index(f, l)] == 0 {
             return self.make_result(false, Some("Already used!"), None);
         }
 
         self.counts[pair_index(f, l)] -= 1;
         self.graph.on_decrement(f, l, &self.counts);
+        self.used_name_keys.insert(key);
         self.required = Some(l);
         self.history.push((canonical.clone(), true));
         self.human_turn = false;
@@ -326,6 +348,7 @@ impl GameHandle {
                 let name = self.pick_name_for_pair(f, l);
                 self.counts[pair_index(f, l)] -= 1;
                 self.graph.on_decrement(f, l, &self.counts);
+                self.used_name_keys.insert(lookup_key(&name));
                 self.required = Some(l);
                 self.history.push((name.clone(), false));
                 self.human_turn = true;
@@ -365,12 +388,38 @@ impl GameHandle {
 
     // --- private helpers ---
 
+    /// Random opening from [`non_terminal_opening_indices`], played by the nominal first player.
+    fn apply_random_forced_opening(&mut self, opener_is_human: bool) {
+        let safe = non_terminal_opening_indices(&self.graph, &self.names);
+        if safe.is_empty() {
+            return;
+        }
+        let pick = safe[rand::rng().random_range(0..safe.len())];
+        let name = self.names[pick].clone();
+        let (f, l) = first_last_letters(&name).expect("valid ascii name");
+        let idx = pair_index(f, l);
+        self.counts[idx] -= 1;
+        self.graph.on_decrement(f, l, &self.counts);
+        self.used_name_keys.insert(lookup_key(&name));
+        self.required = Some(l);
+        self.history.push((name, opener_is_human));
+        self.human_turn = !opener_is_human;
+
+        let state = GameState {
+            required: self.required,
+            counts: &self.counts,
+            graph: &self.graph,
+        };
+        if state.legal_moves().is_empty() {
+            self.over = true;
+            self.human_won_flag = opener_is_human;
+        }
+    }
+
     fn pick_name_for_pair(&self, f: u8, l: u8) -> String {
-        let played: std::collections::HashSet<String> =
-            self.history.iter().map(|(n, _)| lookup_key(n)).collect();
         for name in &self.names {
             if let Some((nf, nl)) = first_last_letters(name) {
-                if nf == f && nl == l && !played.contains(&lookup_key(name)) {
+                if nf == f && nl == l && !self.used_name_keys.contains(&lookup_key(name)) {
                     return name.clone();
                 }
             }

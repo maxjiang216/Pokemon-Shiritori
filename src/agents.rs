@@ -1,12 +1,11 @@
-//! Agent trait and six implementations for Pokémon Shiritori.
+//! Agent trait and implementations for Pokémon Shiritori.
 //!
 //! | Agent          | Strategy                                                              |
 //! |----------------|-----------------------------------------------------------------------|
 //! | `RandomAgent`  | Uniform random over legal moves                                       |
 //! | `GreedyAgent`  | Minimize opponent out-degree (target dead-end letters first)          |
-//! | `DeadEndHunter`| Retrograde first (exact when labeled); else greedy on out-degree      |
 //! | `RolloutAgent` | Exact minimax to `depth`, then `rollouts` random completions per leaf |
-//! | `HybridAgent`  | Retrograde + SCC check first; else RolloutAgent fallback              |
+//! | `HybridAgent`  | Retrograde + SCC check first; among retro wins, shortest forced mate; else rollout (`name` = "DeadEnd") |
 //! | `ExactAgent`   | Full memoized minimax (only usable for small inputs, ~15 Pokémon)     |
 
 use rand::Rng;
@@ -88,47 +87,6 @@ impl Agent for GreedyAgent {
     }
     fn name(&self) -> &str {
         "Greedy"
-    }
-}
-
-// ---------------------------------------------------------------------------
-// DeadEndHunter — retrograde-first, greedy fallback
-// ---------------------------------------------------------------------------
-
-pub struct DeadEndHunter;
-
-impl Agent for DeadEndHunter {
-    fn choose_move(&mut self, state: &GameState<'_>) -> Option<(u8, u8)> {
-        let moves = state.legal_moves();
-        if moves.is_empty() {
-            return None;
-        }
-        let labels = state.graph.retrograde();
-
-        // 1. Play into a Loser letter → immediate / forced win.
-        if let Some(&m) = moves
-            .iter()
-            .find(|&&(_, t)| labels[t as usize] == Some(false))
-        {
-            return Some(m);
-        }
-        // 2. Among remaining, avoid Winner letters; prefer lowest out-degree.
-        let non_losing: Vec<_> = moves
-            .iter()
-            .filter(|&&(_, t)| labels[t as usize] != Some(true))
-            .copied()
-            .collect();
-        let pool: &[(u8, u8)] = if non_losing.is_empty() {
-            &moves
-        } else {
-            &non_losing
-        };
-        pool.iter()
-            .min_by_key(|&&(_, t)| state.graph.out_degree[t as usize])
-            .copied()
-    }
-    fn name(&self) -> &str {
-        "DeadEndHunter"
     }
 }
 
@@ -238,7 +196,7 @@ impl Agent for RolloutAgent {
 }
 
 // ---------------------------------------------------------------------------
-// HybridAgent — retrograde + SCC check, then rollout fallback
+// HybridAgent — retrograde + SCC check, then rollout fallback (public name: "DeadEnd")
 // ---------------------------------------------------------------------------
 
 pub struct HybridAgent {
@@ -258,13 +216,19 @@ impl Agent for HybridAgent {
         if moves.is_empty() {
             return None;
         }
-        let labels = state.graph.retrograde();
+        let (labels, lose_mate) = state.graph.retrograde_with_lose_mate_plies();
 
-        // 1. Winning move available via retrograde?
-        if let Some(&m) = moves
+        // 1. Retrograde-winning moves: prefer shortest forced win (fewest plies).
+        let win_candidates: Vec<(u8, u8)> = moves
             .iter()
-            .find(|&&(_, t)| labels[t as usize] == Some(false))
-        {
+            .filter(|&&(_, t)| labels[t as usize] == Some(false))
+            .copied()
+            .collect();
+        if let Some(&m) = win_candidates.iter().min_by(|&&(f1, t1), &&(f2, t2)| {
+            let k1 = lose_mate[t1 as usize].unwrap_or(u16::MAX);
+            let k2 = lose_mate[t2 as usize].unwrap_or(u16::MAX);
+            (k1, f1, t1).cmp(&(k2, f2, t2))
+        }) {
             return Some(m);
         }
 
@@ -292,7 +256,7 @@ impl Agent for HybridAgent {
         })
     }
     fn name(&self) -> &str {
-        "Hybrid"
+        "DeadEnd"
     }
 }
 

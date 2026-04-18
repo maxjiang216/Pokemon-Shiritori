@@ -1,11 +1,13 @@
-//! Optimal Pokémon Shiritori solver — Gen 1 English names.
+//! Pokémon Shiritori — English names from national dex generations 1–6 (configurable subset).
 
 pub mod agents;
 pub mod analysis;
 pub mod gen1;
+pub mod gens;
 pub mod graph;
 pub mod normalize;
 pub mod solver;
+pub mod terminal_stats;
 pub mod tournament;
 
 // play.rs uses std::io (stdin) which is unavailable in WASM.

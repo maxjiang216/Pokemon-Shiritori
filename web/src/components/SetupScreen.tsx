@@ -1,5 +1,6 @@
-import { useState } from 'react';
-import type { GameConfig, Records } from '../App';
+import { useEffect, useState } from 'react';
+import type { GameConfig } from '../App';
+import { poolNamesForGenerations } from '../gen1data';
 
 interface Agent {
   id: string;
@@ -9,35 +10,51 @@ interface Agent {
 }
 
 const AGENTS: Agent[] = [
-  { id: 'random',   label: 'Random',   sub: 'Unpredictable', tip: 'Plays completely at random — good for learning.' },
+  { id: 'random',   label: 'Random',   sub: 'Unpredictable', tip: 'Picks a legal move uniformly at random — good for learning the rules.' },
   { id: 'greedy',   label: 'Greedy',   sub: 'Max letters',   tip: 'Always tries to land on letters with fewest options.' },
-  { id: 'deadend',  label: 'DeadEnd',  sub: 'Trap maker',    tip: 'Hunts dead-end letters using exact retrograde analysis.' },
+  { id: 'deadend',  label: 'DeadEnd',  sub: 'Balanced',      tip: 'Retrograde + SCC check first; rollout search when the position is still messy.' },
   { id: 'rollout',  label: 'Rollout',  sub: 'Advanced engine', tip: 'Simulates thousands of random games to find the best move.' },
-  { id: 'hybrid',   label: 'Hybrid',   sub: 'Balanced',      tip: 'Combines exact retrograde labels with rollout search.' },
-  { id: 'exact',    label: 'Exact',    sub: 'Perfect play',  tip: 'Fully optimal — only available with small pools (≤ 15).' },
 ];
 
 interface Props {
   config: GameConfig;
-  records: Records;
   onStart: (cfg: GameConfig) => void;
 }
+
+const DEFAULT_GENS = [1, 2, 3, 4, 5, 6];
 
 export default function SetupScreen({ config, onStart }: Props) {
   const [agent, setAgent] = useState(config.agent);
   const [rollouts, setRollouts] = useState(config.rollouts);
-  const [count, setCount] = useState(config.count);
   const [humanFirst, setHumanFirst] = useState(config.humanFirst);
+  const [generations, setGenerations] = useState<number[]>(
+    config.generations.length ? config.generations : DEFAULT_GENS,
+  );
 
-  const selected = AGENTS.find(a => a.id === agent) ?? AGENTS[3];
-  const pct = ((count - 1) / 150) * 100;
-  const endName = count === 1 ? 'Bulbasaur' : count === 151 ? 'Mew' : `#${count}`;
-  const startName = 'Bulbasaur';
+  useEffect(() => {
+    setAgent(config.agent);
+    setRollouts(config.rollouts);
+    setHumanFirst(config.humanFirst);
+    setGenerations(config.generations.length ? config.generations : DEFAULT_GENS);
+  }, [config]);
+
+  const selected = AGENTS.find(a => a.id === agent) ?? AGENTS[2];
+
+  function toggleGeneration(g: number) {
+    setGenerations(prev => {
+      if (prev.includes(g)) {
+        if (prev.length <= 1) return prev;
+        return prev.filter(x => x !== g);
+      }
+      return [...prev, g].sort((a, b) => a - b);
+    });
+  }
 
   function handleStart() {
-    const effectiveAgent = agent === 'exact' && count > 15 ? 'hybrid' : agent;
-    onStart({ agent: effectiveAgent, rollouts, count, humanFirst });
+    onStart({ agent, rollouts, humanFirst, generations });
   }
+
+  const poolSize = poolNamesForGenerations(generations).length;
 
   return (
     <div>
@@ -47,14 +64,33 @@ export default function SetupScreen({ config, onStart }: Props) {
         </div>
         <h1 className="setup-title">Configure Your Challenge</h1>
         <p className="setup-subtitle">
-          Prepare for the ultimate word battle across the Kanto region.
+          Choose generations 1–6 and battle with the national dex pool you want. Random openings
+          always leave your opponent a reply (no instant dead-letter wins on turn one).
         </p>
       </div>
 
       <div className="card" style={{ marginBottom: 16 }}>
         <div className="setup-card-header">
-          <h2>Opponent Strength</h2>
-          <span className="tag tag-pink">AI Logic</span>
+          <h2>Generations</h2>
+          <span className="tag tag-blue">{poolSize} Pokémon</span>
+        </div>
+        <p className="setup-gens-caption">Which generations are in the word pool?</p>
+        <div className="gen-chip-row">
+          {[1, 2, 3, 4, 5, 6].map(g => (
+            <button
+              key={g}
+              type="button"
+              className={`gen-chip ${generations.includes(g) ? 'active' : ''}`}
+              onClick={() => toggleGeneration(g)}
+            >
+              Gen {g}
+            </button>
+          ))}
+        </div>
+
+        <div className="setup-card-header" style={{ marginTop: 22 }}>
+          <h2>CPU engine</h2>
+          <span className="tag tag-pink">Strategy</span>
         </div>
 
         <div className="agent-grid">
@@ -104,38 +140,9 @@ export default function SetupScreen({ config, onStart }: Props) {
           </div>
         </div>
 
-        <div className="slider-field">
-          <div className="slider-header">
-            <div>
-              <label>Pokédex Pool Size</label>
-              <div className="slider-sub">Limit the word list to the first N Pokémon.</div>
-            </div>
-            <div className="slider-value">{count}</div>
-          </div>
-          <input
-            type="range"
-            className="range-input"
-            min={1}
-            max={151}
-            value={count}
-            style={{ '--pct': `${pct}%` } as React.CSSProperties}
-            onChange={e => setCount(Number(e.target.value))}
-          />
-          <div className="range-labels">
-            <span>1 ({startName})</span>
-            <span>151 ({endName !== 'Bulbasaur' ? endName : 'Mew'})</span>
-          </div>
-        </div>
-
         <button className="btn btn-primary" onClick={handleStart}>
           ⚡ Start Battle
         </button>
-
-        {agent === 'exact' && count > 15 && (
-          <p style={{ fontSize: 12, color: 'var(--red)', marginTop: 8, textAlign: 'center' }}>
-            Exact agent requires pool ≤ 15. Will use Hybrid instead.
-          </p>
-        )}
       </div>
 
       <div className="pro-tip">

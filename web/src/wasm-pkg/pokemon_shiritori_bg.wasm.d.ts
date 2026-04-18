@@ -2,7 +2,7 @@
 /* eslint-disable */
 export const memory: WebAssembly.Memory;
 export const __wbg_gamehandle_free: (a: number, b: number) => void;
-export const gamehandle_new: (a: number, b: number, c: number, d: number, e: number, f: number) => number;
+export const gamehandle_new: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => number;
 export const gamehandle_is_human_turn: (a: number) => number;
 export const gamehandle_is_over: (a: number) => number;
 export const gamehandle_human_won: (a: number) => number;
