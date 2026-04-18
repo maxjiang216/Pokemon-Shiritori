@@ -9,6 +9,7 @@
 //! All methods operate in O(26²) or better — negligible compared with any search.
 
 use crate::gen1::pair_index;
+use crate::normalize::first_last_letters;
 
 /// Adjacency structure of the 26-letter support graph.
 ///
@@ -249,12 +250,153 @@ impl LetterGraph {
 
         label
     }
+
+    /// Retrograde labels plus, for each **losing** letter (`label[l] == Some(false)`), the
+    /// **minimum total plies** until the player to move loses, when both sides optimize
+    /// **time**: the winner minimizes plies, the loser maximizes them (shortest forced win).
+    ///
+    /// Undefined (`None`) for letters in unknown cyclic regions or when distances have not
+    /// converged (rare); callers should treat `None` as “worst” when comparing.
+    pub fn retrograde_with_lose_mate_plies(&self) -> ([Option<bool>; 26], [Option<u16>; 26]) {
+        let label = self.retrograde();
+        let lose_mate = self.lose_mate_plies(&label);
+        (label, lose_mate)
+    }
+
+    fn lose_mate_plies(&self, label: &[Option<bool>; 26]) -> [Option<u16>; 26] {
+        let mut win_mate = [None::<u16>; 26];
+        let mut lose_mate = [None::<u16>; 26];
+
+        for l in 0..26usize {
+            if label[l] == Some(false) && self.successors[l] == 0 {
+                lose_mate[l] = Some(0);
+            }
+        }
+
+        for _ in 0..128 {
+            let mut changed = false;
+
+            // Winning: minimize — pick successor that is losing for opponent, shortest mate.
+            for l in 0..26usize {
+                if label[l] != Some(true) {
+                    continue;
+                }
+                let mut best: Option<u16> = None;
+                let mut succ_mask = self.successors[l];
+                while succ_mask != 0 {
+                    let bit = succ_mask & succ_mask.wrapping_neg();
+                    succ_mask &= !bit;
+                    let v = bit.trailing_zeros() as usize;
+                    if label[v] != Some(false) {
+                        continue;
+                    }
+                    if let Some(lm) = lose_mate[v] {
+                        let cand = lm.saturating_add(1);
+                        best = Some(match best {
+                            None => cand,
+                            Some(b) => b.min(cand),
+                        });
+                    }
+                }
+                if best != win_mate[l] {
+                    win_mate[l] = best;
+                    changed = true;
+                }
+            }
+
+            // Losing (with moves): maximize delay — opponent picks longest win.
+            for l in 0..26usize {
+                if label[l] != Some(false) || self.successors[l] == 0 {
+                    continue;
+                }
+                let mut worst: Option<u16> = None;
+                let mut succ_mask = self.successors[l];
+                let mut all_known = true;
+                while succ_mask != 0 {
+                    let bit = succ_mask & succ_mask.wrapping_neg();
+                    succ_mask &= !bit;
+                    let v = bit.trailing_zeros() as usize;
+                    if label[v] != Some(true) {
+                        all_known = false;
+                        break;
+                    }
+                    match win_mate[v] {
+                        Some(wm) => {
+                            let cand = wm.saturating_add(1);
+                            worst = Some(match worst {
+                                None => cand,
+                                Some(w) => w.max(cand),
+                            });
+                        }
+                        None => {
+                            all_known = false;
+                            break;
+                        }
+                    }
+                }
+                if all_known {
+                    if worst != lose_mate[l] {
+                        lose_mate[l] = worst;
+                        changed = true;
+                    }
+                }
+            }
+
+            if !changed {
+                break;
+            }
+        }
+
+        lose_mate
+    }
+}
+
+/// Indices into `names` for Pokémon whose **last letter** still has at least one name
+/// starting with it in this pool (`out_degree[last] > 0`). Playing any other opening can
+/// strand the opponent with no legal move on turn 1 (e.g. names ending in q / u / x / y in Gen 1).
+pub fn non_terminal_opening_indices(graph: &LetterGraph, names: &[String]) -> Vec<usize> {
+    names
+        .iter()
+        .enumerate()
+        .filter_map(|(i, name)| {
+            let (_, l) = first_last_letters(name)?;
+            if graph.out_degree[l as usize] > 0 {
+                Some(i)
+            } else {
+                None
+            }
+        })
+        .collect()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::gen1::gen1_opening_counts;
+    use crate::gen1::{gen1_opening_counts, load_gen1_names};
+
+    #[test]
+    fn lose_mate_plies_dead_letters_are_zero() {
+        let counts = gen1_opening_counts();
+        let g = LetterGraph::from_counts(&counts);
+        let (_, lose_mate) = g.retrograde_with_lose_mate_plies();
+        for dead in [b'q', b'u', b'x', b'y'] {
+            let i = (dead - b'a') as usize;
+            assert_eq!(lose_mate[i], Some(0), "letter {}", dead as char);
+        }
+    }
+
+    #[test]
+    fn non_terminal_openings_exist_for_gen1() {
+        let names = load_gen1_names();
+        let counts = gen1_opening_counts();
+        let g = LetterGraph::from_counts(&counts);
+        let idx = non_terminal_opening_indices(&g, &names);
+        assert!(!idx.is_empty(), "expected at least one non-terminal opening");
+        for i in idx {
+            let (_, l) = first_last_letters(&names[i]).unwrap();
+            assert!(g.out_degree[l as usize] > 0);
+        }
+    }
 
     #[test]
     fn dead_letters_have_no_successors() {

@@ -20,6 +20,57 @@
   --header-height: 56px;
   --max-w: 560px;
   --font: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --icon-hover: rgba(0,0,0,0.06);
+}
+
+html[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #1c1917;
+  --surface: #292524;
+  --text: #fafaf9;
+  --text-2: #a8a29e;
+  --text-3: #78716c;
+  --border: #44403c;
+  --shadow: 0 2px 16px rgba(0,0,0,0.45);
+  --shadow-sm: 0 1px 6px rgba(0,0,0,0.35);
+  --icon-hover: rgba(255,255,255,0.08);
+}
+
+/* Hard-coded light surfaces — dark variants */
+html[data-theme="dark"] .tag-blue {
+  background: #2c3150;
+  color: #A8B4FF;
+}
+html[data-theme="dark"] .tag-red {
+  background: #3d2828;
+  color: #FCA5A5;
+}
+html[data-theme="dark"] .tag-pink {
+  background: #3d2533;
+  color: #F9A8D4;
+}
+html[data-theme="dark"] .pro-tip {
+  background: #3d3420;
+  border-color: #CA8A04;
+}
+html[data-theme="dark"] .pro-tip-icon {
+  background: #facc15;
+}
+html[data-theme="dark"] .hint-btn.revealed {
+  background: #5c4a1a;
+}
+html[data-theme="dark"] .hint-text {
+  background: #3d3420 !important;
+  border-color: #CA8A04 !important;
+}
+html[data-theme="dark"] .error-msg {
+  background: #3d2828;
+}
+html[data-theme="dark"] .chain-card.human {
+  background: #2c3150;
+}
+html[data-theme="dark"] .live-example-word.pending {
+  color: #fff;
 }
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -74,6 +125,23 @@ body {
   text-transform: uppercase;
 }
 
+.logo-home {
+  font-family: inherit;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+}
+.logo-home:hover {
+  opacity: 0.88;
+}
+.logo-home:focus-visible {
+  outline: 2px solid var(--red);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
 .top-bar-actions {
   display: flex;
   gap: 16px;
@@ -92,7 +160,7 @@ body {
   border-radius: 50%;
   transition: background 0.15s;
 }
-.icon-btn:hover { background: rgba(0,0,0,0.06); }
+.icon-btn:hover { background: var(--icon-hover); }
 .icon-btn svg { width: 20px; height: 20px; }
 
 /* ── Page content area ───────────────────────────────── */
@@ -314,9 +382,44 @@ body {
   font-weight: 700;
 }
 
+.setup-gens-caption {
+  font-size: 13px;
+  color: var(--text-2);
+  margin-bottom: 10px;
+}
+
+.gen-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.gen-chip {
+  font-family: var(--font);
+  font-size: 12px;
+  font-weight: 700;
+  padding: 8px 12px;
+  border-radius: var(--radius-pill);
+  border: 2px solid var(--border);
+  background: var(--bg);
+  color: var(--text-2);
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, color 0.15s;
+}
+
+.gen-chip:hover {
+  border-color: var(--text-3);
+}
+
+.gen-chip.active {
+  border-color: var(--blue);
+  background: rgba(64, 128, 232, 0.12);
+  color: var(--text);
+}
+
 .agent-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
   margin-bottom: 24px;
 }
@@ -513,7 +616,35 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
   margin-bottom: 12px;
+}
+
+.game-status-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.game-exit-btn {
+  font-family: var(--font);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 7px 12px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-2);
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.game-exit-btn:hover {
+  color: var(--text);
+  border-color: var(--text-3);
+  background: var(--bg);
 }
 
 .turn-indicator {
@@ -971,6 +1102,72 @@ body {
   font-style: italic;
 }
 
+/* ── Pokédex / Records slide panels (above bottom nav) ─── */
+.slide-panel-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  z-index: 45;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  animation: fadeIn 0.15s ease;
+}
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.slide-panel-sheet {
+  background: var(--surface);
+  border-radius: 22px 22px 0 0;
+  width: 100%;
+  max-width: var(--max-w);
+  max-height: min(88vh, 900px);
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 -8px 40px rgba(0, 0, 0, 0.18);
+  animation: slideUp 0.28s ease-out;
+}
+.slide-panel-header {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+.slide-panel-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 900;
+  letter-spacing: 0.02em;
+}
+.slide-panel-close {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: none;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 20px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s;
+}
+.slide-panel-close:hover {
+  background: var(--border);
+}
+.slide-panel-body {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 16px 18px 28px;
+  -webkit-overflow-scrolling: touch;
+}
+
 /* ── Rules modal ──────────────────────────────────────── */
 .modal-overlay {
   position: fixed;
@@ -1132,4 +1329,27 @@ body {
   display: flex;
   gap: 12px;
   margin-bottom: 16px;
+}
+
+.btn-records-wipe {
+  width: 100%;
+  margin-top: 8px;
+  padding: 12px 18px;
+  font-family: var(--font);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-2);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, opacity 0.15s;
+}
+.btn-records-wipe:hover:not(:disabled) {
+  color: var(--red);
+  border-color: var(--red);
+}
+.btn-records-wipe:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }

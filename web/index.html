@@ -3,6 +3,26 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script>
+      (function () {
+        try {
+          var k = 'shiritori-theme';
+          var s = localStorage.getItem(k);
+          if (s === 'dark') {
+            document.documentElement.setAttribute('data-theme', 'dark');
+            return;
+          }
+          if (s === 'light') {
+            document.documentElement.setAttribute('data-theme', 'light');
+            return;
+          }
+          document.documentElement.setAttribute(
+            'data-theme',
+            window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+          );
+        } catch (e) {}
+      })();
+    </script>
     <title>Pokémon Shiritori</title>
     <meta name="description" content="Gen 1 Pokémon Shiritori — challenge the AI across the Kanto region." />
     <link rel="preconnect" href="https://fonts.googleapis.com" />

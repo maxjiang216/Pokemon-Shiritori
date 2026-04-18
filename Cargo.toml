@@ -2,7 +2,7 @@
 name = "pokemon_shiritori"
 version = "0.1.0"
 edition = "2021"
-description = "Optimal Gen 1 Pokémon Shiritori (English letters)"
+description = "Pokémon Shiritori — generations 1–6 English names (letter multigraph)"
 license = "MIT OR Apache-2.0"
 
 [lib]

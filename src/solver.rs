@@ -247,6 +247,30 @@ pub fn can_win(
     Some(result ^ (parity == 1))
 }
 
+/// After playing one copy of edge `f→l` (opening move), does **player 1** win under optimal play?
+///
+/// Equivalent: `can_win(Some(l), …)` is `Some(false)` (player 2 to move loses).
+/// Returns `None` if the edge count is zero or the subtree hit the depth limit (`can_win` = `None`).
+pub fn first_player_wins_after_opening_edge(
+    counts: &mut [u8; 676],
+    graph: &mut LetterGraph,
+    memo: &mut FxHashMap<(u8, u64), bool>,
+    f: u8,
+    l: u8,
+    depth_limit: usize,
+) -> Option<bool> {
+    let idx = pair_index(f, l);
+    if counts[idx] == 0 {
+        return None;
+    }
+    counts[idx] -= 1;
+    graph.on_decrement(f, l, counts);
+    let opp = can_win(Some(l), counts, graph, memo, depth_limit);
+    counts[idx] += 1;
+    graph.on_increment(f, l);
+    opp.map(|ow| !ow)
+}
+
 /// All `(first, last)` pairs that are optimal opening plays.
 /// Returns `(f, t, is_exact)` — `is_exact=false` if depth limit was hit for any branch.
 pub fn optimal_opening_moves(
@@ -373,5 +397,19 @@ mod tests {
             Some(true),
             "first 5 Pokémon: all openings reach dead letter"
         );
+    }
+
+    #[test]
+    fn opening_edge_symmetric_with_optimal_openings() {
+        let names: Vec<String> = gen1::load_gen1_names().into_iter().take(5).collect();
+        let mut c = gen1::counts_from_names(&names);
+        let mut g = LetterGraph::from_counts(&c);
+        let mut memo = fresh();
+        let (opt_edges, _) = optimal_opening_moves(&mut c, &mut g, &mut memo, 1000);
+        let mut memo2 = fresh();
+        for &(f, l) in &opt_edges {
+            let w = first_player_wins_after_opening_edge(&mut c, &mut g, &mut memo2, f, l, 1000);
+            assert_eq!(w, Some(true), "edge {f}→{l} should be winning for P1");
+        }
     }
 }

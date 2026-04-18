@@ -1,5 +1,5 @@
 import type { GameHandle } from '../wasm-pkg/pokemon_shiritori';
-import type { Records } from '../App';
+import type { Records } from '../types';
 
 interface HistEntry { name: string; by_human: boolean; }
 

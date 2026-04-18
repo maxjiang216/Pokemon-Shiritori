@@ -34,15 +34,18 @@ export class GameHandle {
     /**
      * Create a new game.
      *
-     * - `agent`: one of `random`, `greedy`, `deadend`, `rollout`, `hybrid`
-     * - `depth`: minimax depth for rollout/hybrid agents
-     * - `rollouts`: random simulations per leaf for rollout/hybrid
-     * - `count`: how many Gen 1 Pokémon to include (1–151)
-     * - `human_first`: whether the human moves first
+     * - `agent`: one of `random`, `greedy`, `deadend` (aliases: `hybrid`, `deadendhunter`, `hunter`), `rollout`
+     * - `depth`: minimax depth for rollout/deadend agents
+     * - `rollouts`: random simulations per leaf for rollout/deadend
+     * - `generations`: comma-separated `1`–`6` or `all` — which dex blocks are in the pool
+     * - `human_first`: whether the human is the nominal first player (after a random safe opening)
+     *
+     * A random opening Pokémon is applied first so the next player always has at least one reply
+     * (no instant wins from names ending in letters nothing starts with).
      */
-    constructor(agent: string, depth: number, rollouts: number, count: number, human_first: boolean);
+    constructor(agent: string, depth: number, rollouts: number, generations: string, human_first: boolean);
     /**
-     * All pool names in national dex order — index + 1 gives the dex ID.
+     * Pool names in national dex order for the selected generations.
      */
     pool_names(): Array<any>;
     /**
@@ -50,7 +53,7 @@ export class GameHandle {
      */
     remaining_count(): number;
     /**
-     * Returns `null` (opening move) or an uppercase single character like `"U"`.
+     * Required starting letter for the next play, or `null` only before any move (if the pool had no safe random opening).
      */
     required_letter(): any;
     /**
@@ -64,7 +67,7 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
     readonly __wbg_gamehandle_free: (a: number, b: number) => void;
-    readonly gamehandle_new: (a: number, b: number, c: number, d: number, e: number, f: number) => number;
+    readonly gamehandle_new: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => number;
     readonly gamehandle_is_human_turn: (a: number) => number;
     readonly gamehandle_is_over: (a: number) => number;
     readonly gamehandle_human_won: (a: number) => number;
