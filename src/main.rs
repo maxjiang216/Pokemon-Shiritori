@@ -248,6 +248,7 @@ fn main() {
         "tournament" => cmd_tournament(&opts),
         "sensitivity" => cmd_sensitivity(&opts),
         "play" => cmd_play(&opts),
+        "cpus" | "agents" => cmd_cpus(),
         _ => {
             println!("Pokémon Shiritori Solver\n");
             println!("Usage: pokemon-shiritori <subcommand> [options]\n");
@@ -267,10 +268,26 @@ fn main() {
             println!();
             println!("  play         [--cpu NAME] [--first human|cpu|random]");
             println!("               [--count N] [--depth D] [--rollouts R]");
-            println!("               Interactive human vs CPU. Commands: help legal prefer restart quit.");
-            println!(
-                "               Defaults: cpu=hybrid, first=human, count=151, depth=4, rollouts=30"
-            );
+            println!("               Interactive human vs CPU.");
+            println!("               In-game commands: help  legal  prefer  restart  quit");
+            println!("               Defaults: cpu=hybrid, first=human, count=151, depth=4, rollouts=30");
+            println!();
+            println!("  cpus         List all CPU agents with descriptions.");
         }
     }
+}
+
+fn cmd_cpus() {
+    println!("Available CPU agents (use with --cpu NAME):\n");
+    println!("  random         Uniform random over legal moves.");
+    println!("  greedy         Minimize opponent's out-degree at the landing letter.");
+    println!("  deadend        Retrograde-first: play into losing letters; greedy fallback.");
+    println!("               aliases: deadendhunter, hunter");
+    println!("  rollout        Exact minimax to depth D, then R random rollouts per leaf.");
+    println!("  hybrid         Retrograde + SCC check first; rollout fallback.");
+    println!("  exact          Full memoized minimax — only usable with --count ≤ 15.");
+    println!();
+    println!("Tournament win rates (row beats column, Gen 1 full set):");
+    println!("  Random < Greedy < DeadEndHunter ≈ Rollout ≈ Hybrid >> Random");
+    println!("  DeadEndHunter matches Rollout/Hybrid using only O(26²) retrograde analysis.");
 }

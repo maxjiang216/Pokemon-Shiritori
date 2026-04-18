@@ -1,0 +1,82 @@
+# Run on every PR targeting main and on pushes to main.
+# Validates Rust (tests + native + WASM), wasm-bindgen output, and the Vite bundle.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rust:
+    name: Rust (test + release binary)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+
+      - name: Run tests
+        run: cargo test --verbose --locked
+
+      - name: Build release CLI
+        run: cargo build --release --locked --bin pokemon-shiritori
+
+  wasm:
+    name: Rust (WASM + wasm-bindgen smoke)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+
+      - name: Build lib for wasm32-unknown-unknown
+        run: cargo build --lib --target wasm32-unknown-unknown --release --locked --features wasm
+
+      - name: Install wasm-bindgen-cli
+        run: cargo install wasm-bindgen-cli --version 0.2.118 --locked
+
+      - name: Generate JS bindings (smoke)
+        run: |
+          WASM=$(find target/wasm32-unknown-unknown/release -maxdepth 1 -name '*.wasm' | head -n1)
+          test -n "$WASM" || { echo 'No wasm artifact found'; exit 1; }
+          mkdir -p /tmp/wasm-pkg-test
+          wasm-bindgen --target web --out-dir /tmp/wasm-pkg-test "$WASM"
+          test -f /tmp/wasm-pkg-test/pokemon_shiritori.js
+          test -f /tmp/wasm-pkg-test/pokemon_shiritori_bg.wasm
+
+  web:
+    name: Web (Vite production build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: web
+
+      - name: Vite build
+        run: npm run build
+        working-directory: web
